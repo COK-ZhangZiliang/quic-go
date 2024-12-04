@@ -1,6 +1,7 @@
 package congestion
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -204,6 +205,12 @@ func (c *Cubic) CongestionWindowAfterAck(
 	if targetCongestionWindow < c.estimatedTCPcongestionWindow {
 		targetCongestionWindow = c.estimatedTCPcongestionWindow
 	}
+
+	// print CWND update
+	fmt.Printf("CUBIC CWND update - Current: %d bytes, Target: %d bytes, Time: %s\n",
+    currentCongestionWindow,
+    targetCongestionWindow,
+    time.Now().Format("15:04:05.000"))
 	return targetCongestionWindow
 }
 
