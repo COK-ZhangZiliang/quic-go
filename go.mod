@@ -1,4 +1,4 @@
-replace github.com/quic-go/quic-go => ./
+module github.com/quic-go/quic-go
 
 go 1.22
 

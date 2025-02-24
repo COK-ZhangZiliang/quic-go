@@ -24,6 +24,8 @@ ARG GITREF="master"
 RUN git clone https://github.com/COK-ZhangZiliang/quic-go.git
 WORKDIR /quic-go
 RUN git checkout ${GITREF}
+# only for test
+RUN go mod edit -replace github.com/quic-go/quic-go=./
 RUN go get ./...
 
 RUN git rev-parse HEAD | tee commit.txt
