@@ -7,24 +7,23 @@ import (
 	"crypto/x509"
 	"flag"
 	"fmt"
-	"log"
+	"io"
+	"math/rand"
+	"net"
 	"os"
 	"runtime/pprof"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/integrationtests/tools"
 	"github.com/quic-go/quic-go/internal/protocol"
-	"github.com/quic-go/quic-go/internal/utils"
 	"github.com/quic-go/quic-go/internal/wire"
 	"github.com/quic-go/quic-go/logging"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/stretchr/testify/require"
 )
 
 const alpn = tools.ALPN
@@ -52,56 +51,17 @@ func GeneratePRData(l int) []byte {
 	return res
 }
 
-const logBufSize = 100 * 1 << 20 // initial size of the log buffer: 100 MB
-
-type syncedBuffer struct {
-	mutex sync.Mutex
-
-	*bytes.Buffer
-}
-
-func (b *syncedBuffer) Write(p []byte) (int, error) {
-	b.mutex.Lock()
-	n, err := b.Buffer.Write(p)
-	b.mutex.Unlock()
-	return n, err
-}
-
-func (b *syncedBuffer) Bytes() []byte {
-	b.mutex.Lock()
-	p := b.Buffer.Bytes()
-	b.mutex.Unlock()
-	return p
-}
-
-func (b *syncedBuffer) Reset() {
-	b.mutex.Lock()
-	b.Buffer.Reset()
-	b.mutex.Unlock()
-}
-
 var (
-	logFileName  string // the log file set in the ginkgo flags
-	logBufOnce   sync.Once
-	logBuf       *syncedBuffer
-	versionParam string
-
+	version    quic.Version
 	enableQlog bool
 
-	version                          quic.Version
 	tlsConfig                        *tls.Config
 	tlsConfigLongChain               *tls.Config
 	tlsClientConfig                  *tls.Config
 	tlsClientConfigWithoutServerName *tls.Config
 )
 
-// read the logfile command line flag
-// to set call ginkgo -- -logfile=log.txt
 func init() {
-	flag.StringVar(&logFileName, "logfile", "", "log file")
-	flag.StringVar(&versionParam, "version", "1", "QUIC version")
-	flag.BoolVar(&enableQlog, "qlog", false, "enable qlog")
-
 	ca, caPrivateKey, err := tools.GenerateCA()
 	if err != nil {
 		panic(err)
@@ -136,31 +96,9 @@ func init() {
 	}
 }
 
-var _ = BeforeSuite(func() {
-	switch versionParam {
-	case "1":
-		version = quic.Version1
-	case "2":
-		version = quic.Version2
-	default:
-		Fail(fmt.Sprintf("unknown QUIC version: %s", versionParam))
-	}
-	fmt.Printf("Using QUIC version: %s\n", version)
-	protocol.SupportedVersions = []quic.Version{version}
-})
-
-func getTLSConfig() *tls.Config {
-	return tlsConfig.Clone()
-}
-
-func getTLSConfigWithLongCertChain() *tls.Config {
-	return tlsConfigLongChain.Clone()
-}
-
-func getTLSClientConfig() *tls.Config {
-	return tlsClientConfig.Clone()
-}
-
+func getTLSConfig() *tls.Config                  { return tlsConfig.Clone() }
+func getTLSConfigWithLongCertChain() *tls.Config { return tlsConfigLongChain.Clone() }
+func getTLSClientConfig() *tls.Config            { return tlsClientConfig.Clone() }
 func getTLSClientConfigWithoutServerName() *tls.Config {
 	return tlsClientConfigWithoutServerName.Clone()
 }
@@ -177,7 +115,7 @@ func getQuicConfig(conf *quic.Config) *quic.Config {
 	if conf.Tracer == nil {
 		conf.Tracer = func(ctx context.Context, p logging.Perspective, connID quic.ConnectionID) *logging.ConnectionTracer {
 			return logging.NewMultiplexedConnectionTracer(
-				tools.NewQlogConnectionTracer(GinkgoWriter)(ctx, p, connID),
+				tools.NewQlogConnectionTracer(os.Stdout)(ctx, p, connID),
 				// multiplex it with an empty tracer to check that we're correctly ignoring unset callbacks everywhere
 				&logging.ConnectionTracer{},
 			)
@@ -187,7 +125,7 @@ func getQuicConfig(conf *quic.Config) *quic.Config {
 	origTracer := conf.Tracer
 	conf.Tracer = func(ctx context.Context, p logging.Perspective, connID quic.ConnectionID) *logging.ConnectionTracer {
 		tr := origTracer(ctx, p, connID)
-		qlogger := tools.NewQlogConnectionTracer(GinkgoWriter)(ctx, p, connID)
+		qlogger := tools.NewQlogConnectionTracer(os.Stdout)(ctx, p, connID)
 		if tr == nil {
 			return qlogger
 		}
@@ -202,7 +140,7 @@ func addTracer(tr *quic.Transport) {
 	}
 	if tr.Tracer == nil {
 		tr.Tracer = logging.NewMultiplexedTracer(
-			tools.QlogTracer(GinkgoWriter),
+			tools.QlogTracer(os.Stdout),
 			// multiplex it with an empty tracer to check that we're correctly ignoring unset callbacks everywhere
 			&logging.Tracer{},
 		)
@@ -210,22 +148,18 @@ func addTracer(tr *quic.Transport) {
 	}
 	origTracer := tr.Tracer
 	tr.Tracer = logging.NewMultiplexedTracer(
-		tools.QlogTracer(GinkgoWriter),
+		tools.QlogTracer(os.Stdout),
 		origTracer,
 	)
 }
 
-var _ = BeforeEach(func() {
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-
-	if debugLog() {
-		logBufOnce.Do(func() {
-			logBuf = &syncedBuffer{Buffer: bytes.NewBuffer(make([]byte, 0, logBufSize))}
-		})
-		utils.DefaultLogger.SetLogLevel(utils.LogLevelDebug)
-		log.SetOutput(logBuf)
-	}
-})
+func newUDPConnLocalhost(t testing.TB) *net.UDPConn {
+	t.Helper()
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	return conn
+}
 
 func areHandshakesRunning() bool {
 	var b bytes.Buffer
@@ -239,22 +173,36 @@ func areTransportsRunning() bool {
 	return strings.Contains(b.String(), "quic-go.(*Transport).listen")
 }
 
-var _ = AfterEach(func() {
-	Expect(areHandshakesRunning()).To(BeFalse())
-	Eventually(areTransportsRunning).Should(BeFalse())
+func TestMain(m *testing.M) {
+	var versionParam string
+	flag.StringVar(&versionParam, "version", "1", "QUIC version")
+	flag.BoolVar(&enableQlog, "qlog", false, "enable qlog")
+	flag.Parse()
 
-	if debugLog() {
-		logFile, err := os.Create(logFileName)
-		Expect(err).ToNot(HaveOccurred())
-		logFile.Write(logBuf.Bytes())
-		logFile.Close()
-		logBuf.Reset()
+	switch versionParam {
+	case "1":
+		version = quic.Version1
+	case "2":
+		version = quic.Version2
+	default:
+		fmt.Printf("unknown QUIC version: %s\n", versionParam)
+		os.Exit(1)
 	}
-})
+	fmt.Printf("using QUIC version: %s\n", version)
 
-// Debug says if this test is being logged
-func debugLog() bool {
-	return len(logFileName) > 0
+	status := m.Run()
+	if status != 0 {
+		os.Exit(status)
+	}
+	if areHandshakesRunning() {
+		fmt.Println("stray handshake goroutines found")
+		os.Exit(1)
+	}
+	if areTransportsRunning() {
+		fmt.Println("stray transport goroutines found")
+		os.Exit(1)
+	}
+	os.Exit(status)
 }
 
 func scaleDuration(d time.Duration) time.Duration {
@@ -262,7 +210,9 @@ func scaleDuration(d time.Duration) time.Duration {
 	if f, err := strconv.Atoi(os.Getenv("TIMESCALE_FACTOR")); err == nil { // parsing "" errors, so this works fine if the env is not set
 		scaleFactor = f
 	}
-	Expect(scaleFactor).ToNot(BeZero())
+	if scaleFactor == 0 {
+		panic("TIMESCALE_FACTOR is 0")
+	}
 	return time.Duration(scaleFactor) * d
 }
 
@@ -298,6 +248,17 @@ func (t *packetCounter) getRcvdLongHeaderPackets() []packet {
 	return t.rcvdLongHdr
 }
 
+func (t *packetCounter) getRcvd0RTTPacketNumbers() []protocol.PacketNumber {
+	packets := t.getRcvdLongHeaderPackets()
+	var zeroRTTPackets []protocol.PacketNumber
+	for _, p := range packets {
+		if p.hdr.Type == protocol.PacketType0RTT {
+			zeroRTTPackets = append(zeroRTTPackets, p.hdr.PacketNumber)
+		}
+	}
+	return zeroRTTPackets
+}
+
 func (t *packetCounter) getRcvdShortHeaderPackets() []shortHeaderPacket {
 	<-t.closed
 	return t.rcvdShortHdr
@@ -322,7 +283,45 @@ func newPacketTracer() (*packetCounter, *logging.ConnectionTracer) {
 	}
 }
 
-func TestSelf(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Self integration tests")
+type readerWithTimeout struct {
+	io.Reader
+	Timeout time.Duration
+}
+
+func (r *readerWithTimeout) Read(p []byte) (n int, err error) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		n, err = r.Reader.Read(p)
+	}()
+
+	select {
+	case <-done:
+		return n, err
+	case <-time.After(r.Timeout):
+		return 0, fmt.Errorf("read timeout after %s", r.Timeout)
+	}
+}
+
+func randomDuration(min, max time.Duration) time.Duration {
+	return min + time.Duration(rand.Int63n(int64(max-min)))
+}
+
+// contains0RTTPacket says if a packet contains a 0-RTT long header packet.
+// It correctly handles coalesced packets.
+func contains0RTTPacket(data []byte) bool {
+	for len(data) > 0 {
+		if !wire.IsLongHeaderPacket(data[0]) {
+			return false
+		}
+		hdr, _, rest, err := wire.ParsePacket(data)
+		if err != nil {
+			return false
+		}
+		if hdr.Type == protocol.PacketType0RTT {
+			return true
+		}
+		data = rest
+	}
+	return false
 }

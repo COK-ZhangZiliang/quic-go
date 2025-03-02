@@ -57,10 +57,12 @@ func (c *connectionFlowController) IncrementHighestReceived(increment protocol.B
 	return nil
 }
 
-func (c *connectionFlowController) AddBytesRead(n protocol.ByteCount) {
+func (c *connectionFlowController) AddBytesRead(n protocol.ByteCount) (hasWindowUpdate bool) {
 	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	c.baseFlowController.addBytesRead(n)
-	c.mutex.Unlock()
+	return c.baseFlowController.hasWindowUpdate()
 }
 
 func (c *connectionFlowController) GetWindowUpdate(now time.Time) protocol.ByteCount {
@@ -106,5 +108,6 @@ func (c *connectionFlowController) Reset() error {
 	}
 	c.bytesSent = 0
 	c.lastBlockedAt = 0
+	c.sendWindow = 0
 	return nil
 }

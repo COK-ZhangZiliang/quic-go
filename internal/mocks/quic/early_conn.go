@@ -15,7 +15,6 @@ import (
 	reflect "reflect"
 
 	quic "github.com/quic-go/quic-go"
-	qerr "github.com/quic-go/quic-go/internal/qerr"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -23,6 +22,7 @@ import (
 type MockEarlyConnection struct {
 	ctrl     *gomock.Controller
 	recorder *MockEarlyConnectionMockRecorder
+	isgomock struct{}
 }
 
 // MockEarlyConnectionMockRecorder is the mock recorder for MockEarlyConnection.
@@ -121,7 +121,7 @@ func (c *MockEarlyConnectionAcceptUniStreamCall) DoAndReturn(f func(context.Cont
 }
 
 // CloseWithError mocks base method.
-func (m *MockEarlyConnection) CloseWithError(arg0 qerr.ApplicationErrorCode, arg1 string) error {
+func (m *MockEarlyConnection) CloseWithError(arg0 quic.ApplicationErrorCode, arg1 string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CloseWithError", arg0, arg1)
 	ret0, _ := ret[0].(error)
@@ -147,13 +147,13 @@ func (c *MockEarlyConnectionCloseWithErrorCall) Return(arg0 error) *MockEarlyCon
 }
 
 // Do rewrite *gomock.Call.Do
-func (c *MockEarlyConnectionCloseWithErrorCall) Do(f func(qerr.ApplicationErrorCode, string) error) *MockEarlyConnectionCloseWithErrorCall {
+func (c *MockEarlyConnectionCloseWithErrorCall) Do(f func(quic.ApplicationErrorCode, string) error) *MockEarlyConnectionCloseWithErrorCall {
 	c.Call = c.Call.Do(f)
 	return c
 }
 
 // DoAndReturn rewrite *gomock.Call.DoAndReturn
-func (c *MockEarlyConnectionCloseWithErrorCall) DoAndReturn(f func(qerr.ApplicationErrorCode, string) error) *MockEarlyConnectionCloseWithErrorCall {
+func (c *MockEarlyConnectionCloseWithErrorCall) DoAndReturn(f func(quic.ApplicationErrorCode, string) error) *MockEarlyConnectionCloseWithErrorCall {
 	c.Call = c.Call.DoAndReturn(f)
 	return c
 }
@@ -583,17 +583,17 @@ func (c *MockEarlyConnectionRemoteAddrCall) DoAndReturn(f func() net.Addr) *Mock
 }
 
 // SendDatagram mocks base method.
-func (m *MockEarlyConnection) SendDatagram(arg0 []byte) error {
+func (m *MockEarlyConnection) SendDatagram(payload []byte) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SendDatagram", arg0)
+	ret := m.ctrl.Call(m, "SendDatagram", payload)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SendDatagram indicates an expected call of SendDatagram.
-func (mr *MockEarlyConnectionMockRecorder) SendDatagram(arg0 any) *MockEarlyConnectionSendDatagramCall {
+func (mr *MockEarlyConnectionMockRecorder) SendDatagram(payload any) *MockEarlyConnectionSendDatagramCall {
 	mr.mock.ctrl.T.Helper()
-	call := mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendDatagram", reflect.TypeOf((*MockEarlyConnection)(nil).SendDatagram), arg0)
+	call := mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendDatagram", reflect.TypeOf((*MockEarlyConnection)(nil).SendDatagram), payload)
 	return &MockEarlyConnectionSendDatagramCall{Call: call}
 }
 

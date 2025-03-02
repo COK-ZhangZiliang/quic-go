@@ -192,16 +192,20 @@ func TestStreamWindowUpdate(t *testing.T) {
 		utils.DefaultLogger,
 	)
 	require.Zero(t, fc.GetWindowUpdate(time.Now()))
-	fc.AddBytesRead(24)
+	hasStreamWindowUpdate, _ := fc.AddBytesRead(24)
+	require.False(t, hasStreamWindowUpdate)
 	require.Zero(t, fc.GetWindowUpdate(time.Now()))
 	// the window is updated when it's 25% filled
-	fc.AddBytesRead(1)
+	hasStreamWindowUpdate, _ = fc.AddBytesRead(1)
+	require.True(t, hasStreamWindowUpdate)
 	require.Equal(t, protocol.ByteCount(125), fc.GetWindowUpdate(time.Now()))
 
-	fc.AddBytesRead(24)
+	hasStreamWindowUpdate, _ = fc.AddBytesRead(24)
+	require.False(t, hasStreamWindowUpdate)
 	require.Zero(t, fc.GetWindowUpdate(time.Now()))
 	// the window is updated when it's 25% filled
-	fc.AddBytesRead(1)
+	hasStreamWindowUpdate, _ = fc.AddBytesRead(1)
+	require.True(t, hasStreamWindowUpdate)
 	require.Equal(t, protocol.ByteCount(150), fc.GetWindowUpdate(time.Now()))
 
 	// Receive the final offset.
@@ -211,10 +215,35 @@ func TestStreamWindowUpdate(t *testing.T) {
 	require.Zero(t, fc.GetWindowUpdate(time.Now()))
 }
 
+func TestStreamConnectionWindowUpdate(t *testing.T) {
+	connFC := NewConnectionFlowController(
+		100,
+		protocol.MaxByteCount,
+		nil,
+		&utils.RTTStats{},
+		utils.DefaultLogger,
+	)
+	fc := NewStreamFlowController(
+		42,
+		connFC,
+		1000,
+		protocol.MaxByteCount,
+		protocol.MaxByteCount,
+		&utils.RTTStats{},
+		utils.DefaultLogger,
+	)
+
+	hasStreamWindowUpdate, hasConnWindowUpdate := fc.AddBytesRead(50)
+	require.False(t, hasStreamWindowUpdate)
+	require.Zero(t, fc.GetWindowUpdate(time.Now()))
+	require.True(t, hasConnWindowUpdate)
+	require.NotZero(t, connFC.GetWindowUpdate(time.Now()))
+}
+
 func TestStreamWindowAutoTuning(t *testing.T) {
 	// the RTT is 1 second
 	rttStats := &utils.RTTStats{}
-	rttStats.UpdateRTT(time.Second, 0, time.Now())
+	rttStats.UpdateRTT(time.Second, 0)
 	require.Equal(t, time.Second, rttStats.SmoothedRTT())
 
 	connFC := NewConnectionFlowController(
