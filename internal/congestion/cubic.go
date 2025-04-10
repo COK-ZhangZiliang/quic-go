@@ -27,7 +27,7 @@ const (
 const defaultNumConnections = 1
 
 // Default Cubic backoff factor
-const beta float32 = 0.7
+const beta float32 = 0.5 // BUG
 
 // Additional backoff factor when loss occurs in the concave part of the Cubic
 // curve. This additional backoff factor is expected to give up bandwidth to
@@ -133,7 +133,7 @@ func (c *Cubic) CongestionWindowAfterPacketLoss(currentCongestionWindow protocol
 		// flow. Use our extra back off factor to allow the other flow to go up.
 		c.lastMaxCongestionWindow = protocol.ByteCount(c.betaLastMax() * float32(currentCongestionWindow))
 	} else {
-		c.lastMaxCongestionWindow = currentCongestionWindow / 2 // BUG
+		c.lastMaxCongestionWindow = currentCongestionWindow
 	}
 	c.epoch = time.Time{} // Reset time.
 	return protocol.ByteCount(float32(currentCongestionWindow) * c.beta())
