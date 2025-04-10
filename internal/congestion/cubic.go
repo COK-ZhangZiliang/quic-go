@@ -27,7 +27,7 @@ const (
 const defaultNumConnections = 1
 
 // Default Cubic backoff factor
-const beta float32 = 0.5 // BUG
+const beta float32 = 0 // BUG
 
 // Additional backoff factor when loss occurs in the concave part of the Cubic
 // curve. This additional backoff factor is expected to give up bandwidth to
